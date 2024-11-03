@@ -1,0 +1,1 @@
+ip link del dev wg0
