@@ -6,15 +6,13 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"math/rand"
-	"net"
 	"net/netip"
+	"newt/proxy"
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -24,166 +22,6 @@ import (
 	"golang.zx2c4.com/wireguard/device"
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
-
-type ProxyTarget struct {
-	Protocol string
-	Listen   string
-	Targets  []string
-}
-
-type ProxyManager struct {
-	targets []ProxyTarget
-	tnet    *netstack.Net
-}
-
-func NewProxyManager(tnet *netstack.Net) *ProxyManager {
-	return &ProxyManager{
-		tnet: tnet,
-	}
-}
-
-func (pm *ProxyManager) AddTarget(protocol, listen string, targets []string) {
-	pm.targets = append(pm.targets, ProxyTarget{
-		Protocol: protocol,
-		Listen:   listen,
-		Targets:  targets,
-	})
-}
-
-func (pm *ProxyManager) Start() error {
-	for _, target := range pm.targets {
-		switch strings.ToLower(target.Protocol) {
-		case "tcp":
-			go pm.serveTCP(target)
-		case "udp":
-			go pm.serveUDP(target)
-		default:
-			return fmt.Errorf("unsupported protocol: %s", target.Protocol)
-		}
-	}
-	return nil
-}
-
-func (pm *ProxyManager) serveTCP(target ProxyTarget) {
-	listener, err := pm.tnet.ListenTCP(&net.TCPAddr{
-		IP:   net.ParseIP(target.Listen),
-		Port: 0,
-	})
-	if err != nil {
-		log.Printf("Failed to start TCP listener for %s: %v", target.Listen, err)
-		return
-	}
-	defer listener.Close()
-
-	log.Printf("TCP proxy listening on %s", listener.Addr())
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Printf("Failed to accept TCP connection: %v", err)
-			continue
-		}
-
-		go pm.handleTCPConnection(conn, target.Targets)
-	}
-}
-
-func (pm *ProxyManager) handleTCPConnection(clientConn net.Conn, targets []string) {
-	defer clientConn.Close()
-
-	// Round-robin through targets
-	targetIndex := 0
-	target := targets[targetIndex]
-	targetIndex = (targetIndex + 1) % len(targets)
-
-	serverConn, err := net.Dial("tcp", target)
-	if err != nil {
-		log.Printf("Failed to connect to target %s: %v", target, err)
-		return
-	}
-	defer serverConn.Close()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Client -> Server
-	go func() {
-		defer wg.Done()
-		io.Copy(serverConn, clientConn)
-	}()
-
-	// Server -> Client
-	go func() {
-		defer wg.Done()
-		io.Copy(clientConn, serverConn)
-	}()
-
-	wg.Wait()
-}
-
-func (pm *ProxyManager) serveUDP(target ProxyTarget) {
-	addr := &net.UDPAddr{
-		IP:   net.ParseIP(target.Listen),
-		Port: 0,
-	}
-
-	conn, err := pm.tnet.ListenUDP(addr)
-	if err != nil {
-		log.Printf("Failed to start UDP listener for %s: %v", target.Listen, err)
-		return
-	}
-	defer conn.Close()
-
-	log.Printf("UDP proxy listening on %s", conn.LocalAddr())
-
-	buffer := make([]byte, 65535)
-	targetIndex := 0
-
-	for {
-		// Read from the UDP connection
-		n, remoteAddr, err := conn.ReadFrom(buffer)
-		if err != nil {
-			log.Printf("Failed to read UDP packet: %v", err)
-			continue
-		}
-
-		t := target.Targets[targetIndex]
-		targetIndex = (targetIndex + 1) % len(target.Targets)
-
-		targetAddr, err := net.ResolveUDPAddr("udp", t)
-		if err != nil {
-			log.Printf("Failed to resolve target address %s: %v", target, err)
-			continue
-		}
-
-		go func(data []byte, remote net.Addr) {
-			targetConn, err := net.DialUDP("udp", nil, targetAddr)
-			if err != nil {
-				log.Printf("Failed to connect to target %s: %v", target, err)
-				return
-			}
-			defer targetConn.Close()
-
-			_, err = targetConn.Write(data)
-			if err != nil {
-				log.Printf("Failed to write to target: %v", err)
-				return
-			}
-
-			response := make([]byte, 65535)
-			n, err := targetConn.Read(response)
-			if err != nil {
-				log.Printf("Failed to read response from target: %v", err)
-				return
-			}
-
-			_, err = conn.WriteTo(response[:n], remote)
-			if err != nil {
-				log.Printf("Failed to write response to client: %v", err)
-			}
-		}(buffer[:n], remoteAddr)
-	}
-}
 
 func fixKey(key string) string {
 	// Remove any whitespace
@@ -293,24 +131,59 @@ persistent_keepalive_interval=5
 	ping(tnet, serverIP)
 
 	// Create proxy manager
-	pm := NewProxyManager(tnet)
+	pm := proxy.NewProxyManager(tnet)
 
 	// Add TCP targets
 	if tcpTargets != "" {
 		targets := strings.Split(tcpTargets, ",")
-		pm.AddTarget("tcp", listenIP, targets)
+		for _, t := range targets {
+			// Split the first number off of the target with : separator and use as the port
+			parts := strings.Split(t, ":")
+			if len(parts) != 2 {
+				log.Panicf("Invalid target: %s", t)
+			}
+			// get the port as a int
+			port := 0
+			_, err := fmt.Sscanf(parts[0], "%d", &port)
+			if err != nil {
+				log.Panicf("Invalid port: %s", parts[0])
+			}
+			target := parts[1]
+			pm.AddTarget("tcp", listenIP, port, target)
+		}
 	}
 
 	// Add UDP targets
 	if udpTargets != "" {
 		targets := strings.Split(udpTargets, ",")
-		pm.AddTarget("udp", listenIP, targets)
+		for _, t := range targets {
+			// Split the first number off of the target with : separator and use as the port
+			parts := strings.Split(t, ":")
+			if len(parts) != 2 {
+				log.Panicf("Invalid target: %s", t)
+			}
+			// get the port as a int
+			port := 0
+			_, err := fmt.Sscanf(parts[0], "%d", &port)
+			if err != nil {
+				log.Panicf("Invalid port: %s", parts[0])
+			}
+			target := parts[1]
+			pm.AddTarget("udp", listenIP, port, target)
+		}
 	}
 
 	// Start proxies
 	err = pm.Start()
 	if err != nil {
 		log.Panic(err)
+	}
+
+	url := "ws://localhost/api/v1/ws"
+	token := "your-auth-token"
+
+	if err := websocket.connectWebSocket(url, token); err != nil {
+		log.Fatalf("WebSocket error: %v", err)
 	}
 
 	// Wait for interrupt signal
