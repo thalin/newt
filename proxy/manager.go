@@ -78,6 +78,25 @@ func (pm *ProxyManager) Start() error {
 	return nil
 }
 
+func (pm *ProxyManager) Stop() error {
+	pm.Lock()
+	defer pm.Unlock()
+
+	for i := range pm.targets {
+		target := &pm.targets[i]
+		close(target.cancel)
+		target.Lock()
+		if target.listener != nil {
+			target.listener.Close()
+		}
+		if target.udpConn != nil {
+			target.udpConn.Close()
+		}
+		target.Unlock()
+	}
+	return nil
+}
+
 func (pm *ProxyManager) serveTCP(target *ProxyTarget) {
 	listener, err := pm.tnet.ListenTCP(&net.TCPAddr{
 		IP:   net.ParseIP(target.Listen),

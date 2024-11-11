@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"math/rand"
 	"net/netip"
 	"newt/proxy"
+	"newt/websocket"
 	"os"
 	"os/signal"
 	"strings"
@@ -20,8 +22,17 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.zx2c4.com/wireguard/conn"
 	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun"
 	"golang.zx2c4.com/wireguard/tun/netstack"
+	"golang.zx2c4.com/wireguard/wgctrl/wgtypes"
 )
+
+type WgData struct {
+	Endpoint  string `json:"endpoint"`
+	PublicKey string `json:"publicKey"`
+	ServerIP  string `json:"serverIP"`
+	TunnelIP  string `json:"tunnelIP"`
+}
 
 func fixKey(key string) string {
 	// Remove any whitespace
@@ -73,117 +84,232 @@ func ping(tnet *netstack.Net, dst string) {
 
 func main() {
 	var (
-		tunnelIP   string
-		privateKey string
-		publicKey  string
-		endpoint   string
-		tcpTargets string
-		udpTargets string
-		listenIP   string
-		serverIP   string
 		dns        string
+		id         string
+		secret     string
+		privateKey wgtypes.Key
+		err        error
 	)
 
-	flag.StringVar(&tunnelIP, "tunnel-ip", "", "Tunnel IP address")
-	flag.StringVar(&privateKey, "private-key", "", "WireGuard private key")
-	flag.StringVar(&publicKey, "public-key", "", "WireGuard public key")
-	flag.StringVar(&endpoint, "endpoint", "", "WireGuard endpoint (host:port)")
-	flag.StringVar(&tcpTargets, "tcp-targets", "", "Comma-separated list of TCP targets (host:port)")
-	flag.StringVar(&udpTargets, "udp-targets", "", "Comma-separated list of UDP targets (host:port)")
-	flag.StringVar(&listenIP, "listen-ip", "", "IP to listen for incoming connections")
-	flag.StringVar(&serverIP, "server-ip", "", "IP to filter and ping on the server side. Inside tunnel...")
 	flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
+	flag.StringVar(&id, "id", "", "Newt ID")
+	flag.StringVar(&secret, "secret", "", "Newt secret")
 
 	flag.Parse()
 
-	// Create TUN device and network stack
-	tun, tnet, err := netstack.CreateNetTUN(
-		[]netip.Addr{netip.MustParseAddr(tunnelIP)},
-		[]netip.Addr{netip.MustParseAddr(dns)},
-		1420)
+	privateKey, err = wgtypes.GeneratePrivateKey()
 	if err != nil {
-		log.Panic(err)
+		log.Fatalf("Failed to generate private key: %v", err)
 	}
 
-	// Create WireGuard device
-	dev := device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelVerbose, ""))
+	// Create a new client
+	client, err := websocket.NewClient(
+		// the id and secret from the params
+		id,
+		secret,
+		websocket.WithBaseURL("http://localhost:3000/api/v1"),
+	)
+	if err != nil {
+		log.Fatal(err)
+	}
 
-	// Configure WireGuard
-	config := fmt.Sprintf(`private_key=%s
+	// Create TUN device and network stack
+	var tun tun.Device
+	var tnet *netstack.Net
+	var dev *device.Device
+	var pm *proxy.ProxyManager
+	var connected bool
+	var wgData WgData
+
+	// Register handlers for different message types
+	client.RegisterHandler("newt/wg/connect", func(msg websocket.WSMessage) {
+		if connected {
+			log.Printf("Already connected! Put I will send a ping anyway...")
+			ping(tnet, wgData.ServerIP)
+			return
+		}
+
+		jsonData, err := json.Marshal(msg.Data)
+		if err != nil {
+			log.Printf("Error marshaling data: %v", err)
+			return
+		}
+
+		if err := json.Unmarshal(jsonData, &wgData); err != nil {
+			log.Printf("Error unmarshaling target data: %v", err)
+			return
+		}
+
+		log.Printf("Received: %+v", msg)
+		tun, tnet, err = netstack.CreateNetTUN(
+			[]netip.Addr{netip.MustParseAddr(wgData.TunnelIP)},
+			[]netip.Addr{netip.MustParseAddr(dns)},
+			1420)
+		if err != nil {
+			log.Panic(err)
+		}
+
+		// Create WireGuard device
+		dev = device.NewDevice(tun, conn.NewDefaultBind(), device.NewLogger(device.LogLevelVerbose, ""))
+
+		// Configure WireGuard
+		config := fmt.Sprintf(`private_key=%s
 public_key=%s
 allowed_ip=%s/32
 endpoint=%s
-persistent_keepalive_interval=5
-`, fixKey(privateKey), fixKey(publicKey), serverIP, endpoint)
+persistent_keepalive_interval=5`, fmt.Sprintf("%s", privateKey), fixKey(wgData.PublicKey), wgData.ServerIP, wgData.Endpoint)
 
-	err = dev.IpcSet(config)
-	if err != nil {
-		log.Panic(err)
-	}
-
-	// Bring up the device
-	err = dev.Up()
-	if err != nil {
-		log.Panic(err)
-	}
-
-	// Ping to bring the tunnel up on the server side quickly
-	ping(tnet, serverIP)
-
-	// Create proxy manager
-	pm := proxy.NewProxyManager(tnet)
-
-	// Add TCP targets
-	if tcpTargets != "" {
-		targets := strings.Split(tcpTargets, ",")
-		for _, t := range targets {
-			// Split the first number off of the target with : separator and use as the port
-			parts := strings.Split(t, ":")
-			if len(parts) != 2 {
-				log.Panicf("Invalid target: %s", t)
-			}
-			// get the port as a int
-			port := 0
-			_, err := fmt.Sscanf(parts[0], "%d", &port)
-			if err != nil {
-				log.Panicf("Invalid port: %s", parts[0])
-			}
-			target := parts[1]
-			pm.AddTarget("tcp", listenIP, port, target)
+		err = dev.IpcSet(config)
+		if err != nil {
+			log.Panic(err)
 		}
-	}
 
-	// Add UDP targets
-	if udpTargets != "" {
-		targets := strings.Split(udpTargets, ",")
-		for _, t := range targets {
-			// Split the first number off of the target with : separator and use as the port
-			parts := strings.Split(t, ":")
-			if len(parts) != 2 {
-				log.Panicf("Invalid target: %s", t)
-			}
-			// get the port as a int
-			port := 0
-			_, err := fmt.Sscanf(parts[0], "%d", &port)
-			if err != nil {
-				log.Panicf("Invalid port: %s", parts[0])
-			}
-			target := parts[1]
-			pm.AddTarget("udp", listenIP, port, target)
+		// Bring up the device
+		err = dev.Up()
+		if err != nil {
+			log.Panic(err)
 		}
-	}
 
-	// Start proxies
-	err = pm.Start()
+		// Ping to bring the tunnel up on the server side quickly
+		ping(tnet, wgData.ServerIP)
+
+		// Create proxy manager
+		pm = proxy.NewProxyManager(tnet)
+
+		connected = true
+	})
+
+	client.RegisterHandler("newt/tcp/add", func(msg websocket.WSMessage) {
+		log.Printf("Received: %+v", msg)
+
+		// if there is no wgData or pm, we can't add targets
+		if wgData.TunnelIP == "" || pm == nil {
+			log.Printf("No tunnel IP or proxy manager available")
+			return
+		}
+
+		type TargetData struct {
+			Targets []string `json:"targets"`
+		}
+		// Define a struct for the expected data structure
+		jsonData, err := json.Marshal(msg.Data)
+		if err != nil {
+			log.Printf("Error marshaling data: %v", err)
+			return
+		}
+
+		// Parse into our target structure
+		var targetData TargetData
+		if err := json.Unmarshal(jsonData, &targetData); err != nil {
+			log.Printf("Error unmarshaling target data: %v", err)
+			return
+		}
+
+		if len(targetData.Targets) > 0 {
+
+			// Stop the proxy manager before adding new targets
+			err = pm.Stop()
+			if err != nil {
+				log.Panic(err)
+			}
+
+			for _, t := range targetData.Targets {
+				// Split the first number off of the target with : separator and use as the port
+				parts := strings.Split(t, ":")
+				if len(parts) != 2 {
+					log.Printf("Invalid target format: %s", t)
+					continue
+				}
+
+				// Get the port as an int
+				port := 0
+				_, err := fmt.Sscanf(parts[0], "%d", &port)
+				if err != nil {
+					log.Printf("Invalid port: %s", parts[0])
+					continue
+				}
+
+				target := parts[1]
+				pm.AddTarget("tcp", wgData.TunnelIP, port, target)
+			}
+
+			err = pm.Start()
+			if err != nil {
+				log.Panic(err)
+			}
+		}
+	})
+
+	client.RegisterHandler("newt/udp/add", func(msg websocket.WSMessage) {
+		log.Printf("Received: %+v", msg)
+
+		// if there is no wgData or pm, we can't add targets
+		if wgData.TunnelIP == "" || pm == nil {
+			log.Printf("No tunnel IP or proxy manager available")
+			return
+		}
+
+		type TargetData struct {
+			Targets []string `json:"targets"`
+		}
+		jsonData, err := json.Marshal(msg.Data)
+		if err != nil {
+			log.Printf("Error marshaling data: %v", err)
+			return
+		}
+
+		var targetData TargetData
+		if err := json.Unmarshal(jsonData, &targetData); err != nil {
+			log.Printf("Error unmarshaling target data: %v", err)
+			return
+		}
+
+		if len(targetData.Targets) > 0 {
+			err = pm.Stop()
+			if err != nil {
+				log.Panic(err)
+			}
+
+			for _, t := range targetData.Targets {
+				// Split the first number off of the target with : separator and use as the port
+				parts := strings.Split(t, ":")
+				if len(parts) != 2 {
+					log.Printf("Invalid target format: %s", t)
+					continue
+				}
+
+				// Get the port as an int
+				port := 0
+				_, err := fmt.Sscanf(parts[0], "%d", &port)
+				if err != nil {
+					log.Printf("Invalid port: %s", parts[0])
+					continue
+				}
+
+				target := parts[1]
+				pm.AddTarget("udp", wgData.TunnelIP, port, target)
+			}
+
+			err = pm.Start()
+			if err != nil {
+				log.Panic(err)
+			}
+		}
+	})
+
+	// Connect to the WebSocket server
+	if err := client.Connect(); err != nil {
+		log.Fatal(err)
+	}
+	defer client.Close()
+
+	// TODO: we need to send the public key to the server to trigger it to respond to create the tunnel
+	// TODO: how to retry?
+	err = client.SendMessage("newt/wg/register", map[string]interface{}{
+		"content": "Hello, World!",
+	})
 	if err != nil {
-		log.Panic(err)
-	}
-
-	url := "ws://localhost/api/v1/ws"
-	token := "your-auth-token"
-
-	if err := websocket.connectWebSocket(url, token); err != nil {
-		log.Fatalf("WebSocket error: %v", err)
+		log.Printf("Failed to send message: %v", err)
 	}
 
 	// Wait for interrupt signal
