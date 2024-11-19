@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"encoding/json"
-	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
@@ -29,7 +28,7 @@ func getConfigPath() string {
 
 func (c *Client) loadConfig() error {
 	configPath := getConfigPath()
-	data, err := ioutil.ReadFile(configPath)
+	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -53,5 +52,5 @@ func (c *Client) saveConfig() error {
 	if err != nil {
 		return err
 	}
-	return ioutil.WriteFile(configPath, data, 0644)
+	return os.WriteFile(configPath, data, 0644)
 }

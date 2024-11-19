@@ -32,22 +32,33 @@ func (pm *ProxyManager) AddTarget(protocol, listen string, port int, target stri
 	pm.targets = append(pm.targets, newTarget)
 }
 
-func (pm *ProxyManager) RemoveTarget(listen string, port int) error {
+func (pm *ProxyManager) RemoveTarget(protocol, listen string, port int) error {
 	pm.Lock()
 	defer pm.Unlock()
 
+	protocol = strings.ToLower(protocol)
+	if protocol != "tcp" && protocol != "udp" {
+		return fmt.Errorf("unsupported protocol: %s", protocol)
+	}
+
 	for i, target := range pm.targets {
-		if target.Listen == listen && target.Port == port {
+		if target.Listen == listen &&
+			target.Port == port &&
+			strings.ToLower(target.Protocol) == protocol {
 			// Signal the serving goroutine to stop
 			close(target.cancel)
 
-			// Close the listener/connection
+			// Close the appropriate listener/connection based on protocol
 			target.Lock()
-			if target.listener != nil {
-				target.listener.Close()
-			}
-			if target.udpConn != nil {
-				target.udpConn.Close()
+			switch protocol {
+			case "tcp":
+				if target.listener != nil {
+					target.listener.Close()
+				}
+			case "udp":
+				if target.udpConn != nil {
+					target.udpConn.Close()
+				}
 			}
 			target.Unlock()
 
@@ -57,7 +68,7 @@ func (pm *ProxyManager) RemoveTarget(listen string, port int) error {
 		}
 	}
 
-	return fmt.Errorf("target not found for %s:%d", listen, port)
+	return fmt.Errorf("target not found for %s %s:%d", protocol, listen, port)
 }
 
 func (pm *ProxyManager) Start() error {
