@@ -46,7 +46,7 @@ func (pm *ProxyManager) RemoveTarget(protocol, listen string, port int) error {
 			target.Port == port &&
 			strings.ToLower(target.Protocol) == protocol {
 			// Signal the serving goroutine to stop
-			close(target.cancel)
+			// close(target.cancel)
 
 			// Close the appropriate listener/connection based on protocol
 			target.Lock()

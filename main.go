@@ -348,11 +348,10 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 
 		if action == "add" {
 			target := parts[1] + ":" + parts[2]
-			pm.RemoveTarget(proto, tunnelIP, port) // remove it first incase this is an update. we are kind of using the internal port as the "targetId" in the proxy
+			pm.RemoveTarget(proto, tunnelIP, port) // remove it first in case this is an update. we are kind of using the internal port as the "targetId" in the proxy
 			pm.AddTarget(proto, tunnelIP, port, target)
-			// log the target
-			log.Printf("Added target: %s:%d -> %s", tunnelIP, port, target)
 		} else if action == "remove" {
+			log.Printf("Removing target with port %d", port)
 			pm.RemoveTarget(proto, tunnelIP, port)
 		}
 	}
