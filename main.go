@@ -364,13 +364,6 @@ func parseTargetData(data interface{}) (TargetData, error) {
 }
 
 func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto string, targetData TargetData) error {
-
-	// Stop the proxy manager before adding new targets
-	err := pm.Stop()
-	if err != nil {
-		logger.Error("Failed to stop proxy manager: %v", err)
-	}
-
 	for _, t := range targetData.Targets {
 		// Split the first number off of the target with : separator and use as the port
 		parts := strings.Split(t, ":")
@@ -389,17 +382,33 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 
 		if action == "add" {
 			target := parts[1] + ":" + parts[2]
-			pm.RemoveTarget(proto, tunnelIP, port) // remove it first in case this is an update. we are kind of using the internal port as the "targetId" in the proxy
+			// Only remove the specific target if it exists
+			err := pm.RemoveTarget(proto, tunnelIP, port)
+			if err != nil {
+				// Ignore "target not found" errors as this is expected for new targets
+				if !strings.Contains(err.Error(), "target not found") {
+					logger.Error("Failed to remove existing target: %v", err)
+				}
+			}
+
+			// Add the new target
 			pm.AddTarget(proto, tunnelIP, port, target)
+
+			// Start just this target by calling Start() on the proxy manager
+			// The Start() function is idempotent and will only start new targets
+			err = pm.Start()
+			if err != nil {
+				logger.Error("Failed to start proxy manager after adding target: %v", err)
+				return err
+			}
 		} else if action == "remove" {
 			logger.Info("Removing target with port %d", port)
-			pm.RemoveTarget(proto, tunnelIP, port)
+			err := pm.RemoveTarget(proto, tunnelIP, port)
+			if err != nil {
+				logger.Error("Failed to remove target: %v", err)
+				return err
+			}
 		}
-	}
-
-	err = pm.Start()
-	if err != nil {
-		logger.Error("Failed to start proxy manager: %v", err)
 	}
 
 	return nil

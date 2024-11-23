@@ -14,9 +14,10 @@ type ProxyTarget struct {
 	Port       int
 	Target     string
 	cancel     chan struct{}  // Channel to signal shutdown
+	done       chan struct{}  // Channel to signal completion
 	listener   net.Listener   // For TCP
 	udpConn    net.PacketConn // For UDP
-	sync.Mutex                // Protect access to connections
+	sync.Mutex                // Protect access to connection
 }
 
 type ProxyManager struct {
