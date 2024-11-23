@@ -27,6 +27,10 @@ func getConfigPath() string {
 }
 
 func (c *Client) loadConfig() error {
+	if c.config.NewtID != "" && c.config.Secret != "" {
+		return nil
+	}
+
 	configPath := getConfigPath()
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -41,8 +45,9 @@ func (c *Client) loadConfig() error {
 		return err
 	}
 
-	// Only update token from saved config
-	c.config.Token = config.Token
+	c.config.Token = config.Token // I think it always needs to get a new token
+	c.config.NewtID = config.NewtID
+	c.config.Secret = config.Secret
 	return nil
 }
 
