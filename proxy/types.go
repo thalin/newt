@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log"
 	"net"
 	"sync"
 
@@ -21,5 +22,6 @@ type ProxyTarget struct {
 type ProxyManager struct {
 	targets      []ProxyTarget
 	tnet         *netstack.Net
+	log          *log.Logger
 	sync.RWMutex // Protect access to targets slice
 }

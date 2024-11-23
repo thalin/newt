@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/url"
 	"sync"
@@ -137,7 +136,6 @@ func (c *Client) readPump() {
 			var msg WSMessage
 			err := c.conn.ReadJSON(&msg)
 			if err != nil {
-				log.Printf("read error: %v", err)
 				return
 			}
 
