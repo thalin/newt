@@ -59,6 +59,7 @@ func fixKey(key string) string {
 }
 
 func ping(tnet *netstack.Net, dst string) {
+	log.Printf("Pinging %s", dst)
 	socket, err := tnet.Dial("ping4", dst)
 	if err != nil {
 		log.Panic(err)
@@ -94,16 +95,18 @@ func ping(tnet *netstack.Net, dst string) {
 
 func main() {
 	var (
-		dns        string
+		endpoint   string
 		id         string
 		secret     string
+		dns        string
 		privateKey wgtypes.Key
 		err        error
 	)
 
-	flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
+	flag.StringVar(&endpoint, "endpoint", "http://localhost:3000/api/v1", "Endpoint of your pangolin server")
 	flag.StringVar(&id, "id", "", "Newt ID")
 	flag.StringVar(&secret, "secret", "", "Newt secret")
+	flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
 
 	flag.Parse()
 
@@ -117,7 +120,7 @@ func main() {
 		// the id and secret from the params
 		id,
 		secret,
-		websocket.WithBaseURL("http://localhost:3000/api/v1"),
+		websocket.WithBaseURL(endpoint), // TODO: save the endpoint in the config file so we dont have to pass it in every time
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -167,7 +170,7 @@ func main() {
 public_key=%s
 allowed_ip=%s/32
 endpoint=%s
-persistent_keepalive_interval=5`, fmt.Sprintf("%s", privateKey), fixKey(wgData.PublicKey), wgData.ServerIP, wgData.Endpoint)
+persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(wgData.PublicKey), wgData.ServerIP, wgData.Endpoint)
 
 		err = dev.IpcSet(config)
 		if err != nil {
@@ -180,6 +183,7 @@ persistent_keepalive_interval=5`, fmt.Sprintf("%s", privateKey), fixKey(wgData.P
 			log.Panic(err)
 		}
 
+		log.Printf("WireGuard device created. Lets ping the server now...")
 		// Ping to bring the tunnel up on the server side quickly
 		ping(tnet, wgData.ServerIP)
 
@@ -284,9 +288,11 @@ persistent_keepalive_interval=5`, fmt.Sprintf("%s", privateKey), fixKey(wgData.P
 	}
 	defer client.Close()
 
+	publicKey := privateKey.PublicKey()
+	log.Printf("Public key: %s", publicKey)
 	// TODO: how to retry?
 	err = client.SendMessage("newt/wg/register", map[string]interface{}{
-		"publicKey": fmt.Sprintf("%s", privateKey),
+		"publicKey": fmt.Sprintf("%s", publicKey),
 	})
 	if err != nil {
 		log.Printf("Failed to send message: %v", err)
@@ -327,7 +333,7 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 	for _, t := range targetData.Targets {
 		// Split the first number off of the target with : separator and use as the port
 		parts := strings.Split(t, ":")
-		if len(parts) != 2 {
+		if len(parts) != 3 {
 			log.Printf("Invalid target format: %s", t)
 			continue
 		}
@@ -341,8 +347,11 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 		}
 
 		if action == "add" {
-			target := parts[1]
+			target := parts[1] + ":" + parts[2]
+			pm.RemoveTarget(proto, tunnelIP, port) // remove it first incase this is an update. we are kind of using the internal port as the "targetId" in the proxy
 			pm.AddTarget(proto, tunnelIP, port, target)
+			// log the target
+			log.Printf("Added target: %s:%d -> %s", tunnelIP, port, target)
 		} else if action == "remove" {
 			pm.RemoveTarget(proto, tunnelIP, port)
 		}
