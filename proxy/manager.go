@@ -3,8 +3,8 @@ package proxy
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
+	"newt/logger"
 	"strings"
 	"sync"
 	"time"
@@ -154,7 +154,7 @@ func (pm *ProxyManager) serveTCP(target *ProxyTarget) {
 		Port: target.Port,
 	})
 	if err != nil {
-		log.Printf("Failed to start TCP listener for %s:%d: %v", target.Listen, target.Port, err)
+		logger.Info("Failed to start TCP listener for %s:%d: %v", target.Listen, target.Port, err)
 		return
 	}
 
@@ -163,7 +163,7 @@ func (pm *ProxyManager) serveTCP(target *ProxyTarget) {
 	target.Unlock()
 
 	defer listener.Close()
-	log.Printf("TCP proxy listening on %s", listener.Addr())
+	logger.Info("TCP proxy listening on %s", listener.Addr())
 
 	var activeConns sync.WaitGroup
 	acceptDone := make(chan struct{})
@@ -184,7 +184,7 @@ func (pm *ProxyManager) serveTCP(target *ProxyTarget) {
 				activeConns.Wait()
 				return
 			default:
-				log.Printf("Failed to accept TCP connection: %v", err)
+				logger.Info("Failed to accept TCP connection: %v", err)
 				// Don't return here, try to accept new connections
 				time.Sleep(time.Second)
 				continue
@@ -204,7 +204,7 @@ func (pm *ProxyManager) handleTCPConnection(clientConn net.Conn, target string, 
 
 	serverConn, err := net.Dial("tcp", target)
 	if err != nil {
-		log.Printf("Failed to connect to target %s: %v", target, err)
+		logger.Info("Failed to connect to target %s: %v", target, err)
 		return
 	}
 	defer serverConn.Close()
@@ -247,7 +247,7 @@ func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
 
 	conn, err := pm.tnet.ListenUDP(addr)
 	if err != nil {
-		log.Printf("Failed to start UDP listener for %s:%d: %v", target.Listen, target.Port, err)
+		logger.Info("Failed to start UDP listener for %s:%d: %v", target.Listen, target.Port, err)
 		return
 	}
 
@@ -256,7 +256,7 @@ func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
 	target.Unlock()
 
 	defer conn.Close()
-	log.Printf("UDP proxy listening on %s", conn.LocalAddr())
+	logger.Info("UDP proxy listening on %s", conn.LocalAddr())
 
 	buffer := make([]byte, 65535)
 	var activeConns sync.WaitGroup
@@ -274,14 +274,14 @@ func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
 					activeConns.Wait()
 					return
 				default:
-					log.Printf("Failed to read UDP packet: %v", err)
+					logger.Info("Failed to read UDP packet: %v", err)
 					continue
 				}
 			}
 
 			targetAddr, err := net.ResolveUDPAddr("udp", target.Target)
 			if err != nil {
-				log.Printf("Failed to resolve target address %s: %v", target.Target, err)
+				logger.Info("Failed to resolve target address %s: %v", target.Target, err)
 				continue
 			}
 
@@ -290,7 +290,7 @@ func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
 				defer activeConns.Done()
 				targetConn, err := net.DialUDP("udp", nil, targetAddr)
 				if err != nil {
-					log.Printf("Failed to connect to target %s: %v", target.Target, err)
+					logger.Info("Failed to connect to target %s: %v", target.Target, err)
 					return
 				}
 				defer targetConn.Close()
@@ -301,20 +301,20 @@ func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
 				default:
 					_, err = targetConn.Write(data)
 					if err != nil {
-						log.Printf("Failed to write to target: %v", err)
+						logger.Info("Failed to write to target: %v", err)
 						return
 					}
 
 					response := make([]byte, 65535)
 					n, err := targetConn.Read(response)
 					if err != nil {
-						log.Printf("Failed to read response from target: %v", err)
+						logger.Info("Failed to read response from target: %v", err)
 						return
 					}
 
 					_, err = conn.WriteTo(response[:n], remote)
 					if err != nil {
-						log.Printf("Failed to write response to client: %v", err)
+						logger.Info("Failed to write response to client: %v", err)
 					}
 				}
 			}(buffer[:n], remoteAddr)
