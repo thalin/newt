@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/netip"
 	"newt/logger"
 	"newt/proxy"
@@ -125,6 +126,54 @@ func mapToWireGuardLogLevel(level logger.LogLevel) int {
 	}
 }
 
+func resolveDomain(domain string) (string, error) {
+	// Check if there's a port in the domain
+	host, port, err := net.SplitHostPort(domain)
+	if err != nil {
+		// No port found, use the domain as is
+		host = domain
+		port = ""
+	}
+
+	// Remove any protocol prefix if present
+	if strings.HasPrefix(host, "http://") {
+		host = strings.TrimPrefix(host, "http://")
+	} else if strings.HasPrefix(host, "https://") {
+		host = strings.TrimPrefix(host, "https://")
+	}
+
+	// Lookup IP addresses
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return "", fmt.Errorf("DNS lookup failed: %v", err)
+	}
+
+	if len(ips) == 0 {
+		return "", fmt.Errorf("no IP addresses found for domain %s", host)
+	}
+
+	// Get the first IPv4 address if available
+	var ipAddr string
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			ipAddr = ipv4.String()
+			break
+		}
+	}
+
+	// If no IPv4 found, use the first IP (might be IPv6)
+	if ipAddr == "" {
+		ipAddr = ips[0].String()
+	}
+
+	// Add port back if it existed
+	if port != "" {
+		ipAddr = net.JoinHostPort(ipAddr, port)
+	}
+
+	return ipAddr, nil
+}
+
 func main() {
 	var (
 		endpoint   string
@@ -206,12 +255,18 @@ func main() {
 			"wireguard: ",
 		))
 
+		endpoint, err := resolveDomain(wgData.Endpoint)
+		if err != nil {
+			logger.Error("Failed to resolve endpoint: %v", err)
+			return
+		}
+
 		// Configure WireGuard
 		config := fmt.Sprintf(`private_key=%s
 public_key=%s
 allowed_ip=%s/32
 endpoint=%s
-persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(wgData.PublicKey), wgData.ServerIP, wgData.Endpoint)
+persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(wgData.PublicKey), wgData.ServerIP, endpoint)
 
 		err = dev.IpcSet(config)
 		if err != nil {

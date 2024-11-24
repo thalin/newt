@@ -40,7 +40,7 @@ func NewClient(newtID, secret string, opts ...ClientOption) (*Client, error) {
 
 	client := &Client{
 		config:   config,
-		baseURL:  "http://localhost:3000", // default value
+		baseURL:  "https://fossorial.io", // default value
 		handlers: make(map[string]MessageHandler),
 		done:     make(chan struct{}),
 	}
@@ -73,7 +73,7 @@ func (c *Client) Connect() error {
 	}
 
 	// Connect to WebSocket
-	wsURL := fmt.Sprintf("ws://%s/ws", c.baseURL[7:]) // Remove http:// prefix
+	wsURL := fmt.Sprintf("wss://%s/ws", "fossorial.io") // Remove http:// prefix
 	u, err := url.Parse(wsURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse WebSocket URL: %w", err)
