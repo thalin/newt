@@ -90,7 +90,7 @@ func (c *Client) Connect() error {
 	}
 
 	// Create WebSocket URL using the hostname without path
-	wsURL := fmt.Sprintf("%s://%s/ws", wsProtocol, baseURL.Host)
+	wsURL := fmt.Sprintf("%s://%s/api/v1/ws", wsProtocol, baseURL.Host)
 	u, err := url.Parse(wsURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse WebSocket URL: %w", err)
