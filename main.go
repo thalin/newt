@@ -379,23 +379,27 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		}
 	})
 
+	client.OnConnect(func() error {
+		publicKey := privateKey.PublicKey()
+		logger.Debug("Public key: %s", publicKey)
+
+		err := client.SendMessage("newt/wg/register", map[string]interface{}{
+			"publicKey": fmt.Sprintf("%s", publicKey),
+		})
+		if err != nil {
+			logger.Error("Failed to send registration message: %v", err)
+			return err
+		}
+
+		logger.Info("Sent registration message")
+		return nil
+	})
+
 	// Connect to the WebSocket server
 	if err := client.Connect(); err != nil {
 		logger.Fatal("Failed to connect to server: %v", err)
 	}
 	defer client.Close()
-
-	publicKey := privateKey.PublicKey()
-	logger.Debug("Public key: %s", publicKey)
-	// TODO: how to retry?
-	err = client.SendMessage("newt/wg/register", map[string]interface{}{
-		"publicKey": fmt.Sprintf("%s", publicKey),
-	})
-	if err != nil {
-		logger.Info("Failed to send message: %v", err)
-	}
-
-	logger.Info("Sent registration message")
 
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
