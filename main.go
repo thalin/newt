@@ -185,7 +185,7 @@ func main() {
 		logLevel   string
 	)
 
-	flag.StringVar(&endpoint, "endpoint", "http://localhost:3000/api/v1", "Endpoint of your pangolin server")
+	flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
 	flag.StringVar(&id, "id", "", "Newt ID")
 	flag.StringVar(&secret, "secret", "", "Newt secret")
 	flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
@@ -204,10 +204,9 @@ func main() {
 
 	// Create a new client
 	client, err := websocket.NewClient(
-		// the id and secret from the params
-		id,
-		secret,
-		websocket.WithBaseURL(endpoint), // TODO: save the endpoint in the config file so we dont have to pass it in every time
+		id,     // CLI arg takes precedence
+		secret, // CLI arg takes precedence
+		endpoint,
 	)
 	if err != nil {
 		logger.Fatal("Failed to create client: %v", err)
@@ -223,6 +222,8 @@ func main() {
 
 	// Register handlers for different message types
 	client.RegisterHandler("newt/wg/connect", func(msg websocket.WSMessage) {
+		logger.Info("Received registration message")
+
 		if connected {
 			logger.Info("Already connected! Put I will send a ping anyway...")
 			ping(tnet, wgData.ServerIP)
@@ -385,7 +386,7 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	defer client.Close()
 
 	publicKey := privateKey.PublicKey()
-	logger.Info("Public key: %s", publicKey)
+	logger.Debug("Public key: %s", publicKey)
 	// TODO: how to retry?
 	err = client.SendMessage("newt/wg/register", map[string]interface{}{
 		"publicKey": fmt.Sprintf("%s", publicKey),
@@ -393,6 +394,8 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	if err != nil {
 		logger.Info("Failed to send message: %v", err)
 	}
+
+	logger.Info("Sent registration message")
 
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"newt/logger"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -32,20 +34,21 @@ func WithBaseURL(url string) ClientOption {
 }
 
 // NewClient creates a new Newt client
-func NewClient(newtID, secret string, opts ...ClientOption) (*Client, error) {
+func NewClient(newtID, secret string, endpoint string, opts ...ClientOption) (*Client, error) {
 	config := &Config{
-		NewtID: newtID,
-		Secret: secret,
+		NewtID:   newtID,
+		Secret:   secret,
+		Endpoint: endpoint,
 	}
 
 	client := &Client{
 		config:   config,
-		baseURL:  "https://fossorial.io", // default value
+		baseURL:  endpoint, // default value
 		handlers: make(map[string]MessageHandler),
 		done:     make(chan struct{}),
 	}
 
-	// Apply options
+	// Apply options before loading config
 	for _, opt := range opts {
 		opt(client)
 	}
@@ -66,31 +69,48 @@ func (c *Client) Connect() error {
 		return fmt.Errorf("failed to get token: %w", err)
 	}
 
+	logger.Info("Using token: %s", token)
+
 	// Update config with new token and save
 	c.config.Token = token
 	if err := c.saveConfig(); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 
-	// Connect to WebSocket
-	wsURL := fmt.Sprintf("wss://%s/ws", "fossorial.io") // Remove http:// prefix
+	// Parse the base URL to determine protocol and hostname
+	baseURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return fmt.Errorf("failed to parse base URL: %w", err)
+	}
+
+	// Determine WebSocket protocol based on HTTP protocol
+	wsProtocol := "wss"
+	if baseURL.Scheme == "http" {
+		wsProtocol = "ws"
+	}
+
+	// Create WebSocket URL using the hostname without path
+	wsURL := fmt.Sprintf("%s://%s/ws", wsProtocol, baseURL.Host)
 	u, err := url.Parse(wsURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse WebSocket URL: %w", err)
 	}
 
+	// Add token to query parameters
 	q := u.Query()
 	q.Set("token", token)
 	u.RawQuery = q.Encode()
 
+	// Connect to WebSocket
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
 	if err != nil {
 		return fmt.Errorf("failed to connect to WebSocket: %w", err)
 	}
 
+	logger.Info("Connected to WebSocket")
+
 	c.conn = conn
 	go c.readPump()
-
 	return nil
 }
 
@@ -149,6 +169,15 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) getToken() (string, error) {
+	// Parse the base URL to ensure we have the correct hostname
+	baseURL, err := url.Parse(c.baseURL)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse base URL: %w", err)
+	}
+
+	// Ensure we have the base URL without trailing slashes
+	baseEndpoint := strings.TrimRight(baseURL.String(), "/")
+
 	// If we already have a token, try to use it
 	if c.config.Token != "" {
 		tokenCheckData := map[string]interface{}{
@@ -156,19 +185,28 @@ func (c *Client) getToken() (string, error) {
 			"secret": c.config.Secret,
 			"token":  c.config.Token,
 		}
-		jsonData, _ := json.Marshal(tokenCheckData)
-
-		resp, err := http.Post(c.baseURL+"/auth/newt/get-token", "application/json", bytes.NewBuffer(jsonData))
+		jsonData, err := json.Marshal(tokenCheckData)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to marshal token check data: %w", err)
+		}
+
+		// Make request to validate existing token
+		resp, err := http.Post(
+			baseEndpoint+"/api/v1/auth/newt/get-token",
+			"application/json",
+			bytes.NewBuffer(jsonData),
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to check token validity: %w", err)
 		}
 		defer resp.Body.Close()
 
 		var tokenResp TokenResponse
 		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-			return "", err
+			return "", fmt.Errorf("failed to decode token check response: %w", err)
 		}
 
+		// If token is still valid, return it
 		if tokenResp.Success && tokenResp.Message == "Token session already valid" {
 			return c.config.Token, nil
 		}
@@ -179,21 +217,33 @@ func (c *Client) getToken() (string, error) {
 		"newtId": c.config.NewtID,
 		"secret": c.config.Secret,
 	}
-	jsonData, _ := json.Marshal(tokenData)
-
-	resp, err := http.Post(c.baseURL+"/auth/newt/get-token", "application/json", bytes.NewBuffer(jsonData))
+	jsonData, err := json.Marshal(tokenData)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to marshal token request data: %w", err)
+	}
+
+	// Make request to get new token
+	resp, err := http.Post(
+		baseEndpoint+"/api/v1/auth/newt/get-token",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to request new token: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to decode token response: %w", err)
 	}
 
 	if !tokenResp.Success {
 		return "", fmt.Errorf("failed to get token: %s", tokenResp.Message)
+	}
+
+	if tokenResp.Data.Token == "" {
+		return "", fmt.Errorf("received empty token from server")
 	}
 
 	return tokenResp.Data.Token, nil

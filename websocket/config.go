@@ -27,7 +27,7 @@ func getConfigPath() string {
 }
 
 func (c *Client) loadConfig() error {
-	if c.config.NewtID != "" && c.config.Secret != "" {
+	if c.config.NewtID != "" && c.config.Secret != "" && c.config.Endpoint != "" {
 		return nil
 	}
 
@@ -45,9 +45,20 @@ func (c *Client) loadConfig() error {
 		return err
 	}
 
-	c.config.Token = config.Token // I think it always needs to get a new token
-	c.config.NewtID = config.NewtID
-	c.config.Secret = config.Secret
+	if c.config.NewtID == "" {
+		c.config.NewtID = config.NewtID
+	}
+	if c.config.Token == "" {
+		c.config.Token = config.Token
+	}
+	if c.config.Secret == "" {
+		c.config.Secret = config.Secret
+	}
+	if c.config.Endpoint == "" {
+		c.config.Endpoint = config.Endpoint
+		c.baseURL = config.Endpoint
+	}
+
 	return nil
 }
 

@@ -1,9 +1,10 @@
 package websocket
 
 type Config struct {
-	NewtID string `json:"newtId"`
-	Secret string `json:"secret"`
-	Token  string `json:"token"`
+	NewtID   string `json:"newtId"`
+	Secret   string `json:"secret"`
+	Token    string `json:"token"`
+	Endpoint string `json:"endpoint"`
 }
 
 type TokenResponse struct {
