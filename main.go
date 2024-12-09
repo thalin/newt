@@ -220,6 +220,17 @@ func main() {
 	var connected bool
 	var wgData WgData
 
+	client.RegisterHandler("newt/terminate", func(msg websocket.WSMessage) {
+		logger.Info("Received terminate message")
+		if pm != nil {
+			pm.Stop()
+		}
+		if dev != nil {
+			dev.Close()
+		}
+		client.Close()
+	})
+
 	// Register handlers for different message types
 	client.RegisterHandler("newt/wg/connect", func(msg websocket.WSMessage) {
 		logger.Info("Received registration message")

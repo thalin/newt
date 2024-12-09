@@ -86,6 +86,10 @@ func (c *Client) Close() error {
 	if c.conn != nil {
 		return c.conn.Close()
 	}
+
+	// stop the ping monitor
+	c.setConnected(false)
+
 	return nil
 }
 
