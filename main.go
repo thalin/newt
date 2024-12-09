@@ -297,6 +297,11 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if len(wgData.Targets.UDP) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", TargetData{Targets: wgData.Targets.UDP})
 		}
+
+		err = pm.Start()
+		if err != nil {
+			logger.Error("Failed to start proxy manager: %v", err)
+		}
 	})
 
 	client.RegisterHandler("newt/tcp/add", func(msg websocket.WSMessage) {
@@ -317,6 +322,11 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "tcp", targetData)
 		}
+
+		err = pm.Start()
+		if err != nil {
+			logger.Error("Failed to start proxy manager: %v", err)
+		}
 	})
 
 	client.RegisterHandler("newt/udp/add", func(msg websocket.WSMessage) {
@@ -336,6 +346,11 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", targetData)
+		}
+
+		err = pm.Start()
+		if err != nil {
+			logger.Error("Failed to start proxy manager: %v", err)
 		}
 	})
 
@@ -456,13 +471,6 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			// Add the new target
 			pm.AddTarget(proto, tunnelIP, port, target)
 
-			// Start just this target by calling Start() on the proxy manager
-			// The Start() function is idempotent and will only start new targets
-			err = pm.Start()
-			if err != nil {
-				logger.Error("Failed to start proxy manager after adding target: %v", err)
-				return err
-			}
 		} else if action == "remove" {
 			logger.Info("Removing target with port %d", port)
 			err := pm.RemoveTarget(proto, tunnelIP, port)

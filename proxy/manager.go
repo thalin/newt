@@ -22,6 +22,8 @@ func (pm *ProxyManager) AddTarget(protocol, listen string, port int, target stri
 	pm.Lock()
 	defer pm.Unlock()
 
+	logger.Info("Adding target: %s://%s:%d -> %s", protocol, listen, port, target)
+
 	newTarget := ProxyTarget{
 		Protocol: protocol,
 		Listen:   listen,
@@ -99,11 +101,19 @@ func (pm *ProxyManager) Start() error {
 	for i := range pm.targets {
 		target := &pm.targets[i]
 
-		// Skip already running targets
 		target.Lock()
+		// If target is already running, skip it
 		if target.listener != nil || target.udpConn != nil {
 			target.Unlock()
 			continue
+		}
+
+		// Mark the target as starting by creating a nil listener/connection
+		// This prevents other goroutines from trying to start it
+		if strings.ToLower(target.Protocol) == "tcp" {
+			target.listener = nil
+		} else {
+			target.udpConn = nil
 		}
 		target.Unlock()
 
