@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"newt/logger"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fosrl/newt/logger"
 
 	"github.com/gorilla/websocket"
 )

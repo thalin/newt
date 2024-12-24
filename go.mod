@@ -1,4 +1,4 @@
-module newt
+module github.com/fosrl/newt
 
 go 1.23.1
 

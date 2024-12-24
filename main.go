@@ -10,14 +10,15 @@ import (
 	"math/rand"
 	"net"
 	"net/netip"
-	"newt/logger"
-	"newt/proxy"
-	"newt/websocket"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/fosrl/newt/logger"
+	"github.com/fosrl/newt/proxy"
+	"github.com/fosrl/newt/websocket"
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"

@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"newt/logger"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fosrl/newt/logger"
 
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
