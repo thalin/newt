@@ -1,0 +1,6 @@
+.gitignore
+.dockerignore
+newt
+*.json
+README.md
+Makefile
