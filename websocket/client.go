@@ -161,12 +161,23 @@ func (c *Client) getToken() (string, error) {
 			return "", fmt.Errorf("failed to marshal token check data: %w", err)
 		}
 
-		// Make request to validate existing token
-		resp, err := http.Post(
+		// Create a new request
+		req, err := http.NewRequest(
+			"POST",
 			baseEndpoint+"/api/v1/auth/newt/get-token",
-			"application/json",
 			bytes.NewBuffer(jsonData),
 		)
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+
+		// Set headers
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-CSRF-Token", "x-csrf-protection")
+
+		// Make the request
+		client := &http.Client{}
+		resp, err := client.Do(req)
 		if err != nil {
 			return "", fmt.Errorf("failed to check token validity: %w", err)
 		}
@@ -193,12 +204,23 @@ func (c *Client) getToken() (string, error) {
 		return "", fmt.Errorf("failed to marshal token request data: %w", err)
 	}
 
-	// Make request to get new token
-	resp, err := http.Post(
+	// Create a new request
+	req, err := http.NewRequest(
+		"POST",
 		baseEndpoint+"/api/v1/auth/newt/get-token",
-		"application/json",
 		bytes.NewBuffer(jsonData),
 	)
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", "x-csrf-protection")
+
+	// Make the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to request new token: %w", err)
 	}
