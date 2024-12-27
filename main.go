@@ -222,6 +222,13 @@ func resolveDomain(domain string) (string, error) {
 	return ipAddr, nil
 }
 
+func getEnvWithDefault(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
 func main() {
 	var (
 		endpoint   string
@@ -233,13 +240,19 @@ func main() {
 		logLevel   string
 	)
 
-	flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
-	flag.StringVar(&id, "id", "", "Newt ID")
-	flag.StringVar(&secret, "secret", "", "Newt secret")
-	flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
-	flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
-
+	// Define CLI flags with default values from environment variables
+	flag.StringVar(&endpoint, "endpoint", os.Getenv("PANGOLIN_ENDPOINT"), "Endpoint of your pangolin server")
+	flag.StringVar(&id, "id", os.Getenv("NEWT_ID"), "Newt ID")
+	flag.StringVar(&secret, "secret", os.Getenv("NEWT_SECRET"), "Newt secret")
+	flag.StringVar(&dns, "dns", getEnvWithDefault("DEFAULT_DNS", "8.8.8.8"), "DNS server to use")
+	flag.StringVar(&logLevel, "log-level", getEnvWithDefault("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	flag.Parse()
+
+	// Validate required fields
+	if endpoint == "" || id == "" || secret == "" {
+		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
+
+	}
 
 	logger.Init()
 	loggerLevel := parseLogLevel(logLevel)
