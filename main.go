@@ -248,15 +248,14 @@ func main() {
 	flag.StringVar(&logLevel, "log-level", getEnvWithDefault("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	flag.Parse()
 
-	// Validate required fields
-	if endpoint == "" || id == "" || secret == "" {
-		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
-
-	}
-
 	logger.Init()
 	loggerLevel := parseLogLevel(logLevel)
 	logger.GetLogger().SetLevel(parseLogLevel(logLevel))
+
+	// Validate required fields
+	if endpoint == "" || id == "" || secret == "" {
+		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
+	}
 
 	privateKey, err = wgtypes.GeneratePrivateKey()
 	if err != nil {
