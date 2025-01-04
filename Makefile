@@ -2,13 +2,13 @@
 all: build push
 
 build:
-	docker build -t fossorial/newt:latest .
+	docker build -t fosrl/newt:latest .
 
 push:
-	docker push fossorial/newt:latest
+	docker push fosrl/newt:latest
 
 test:
-	docker run fossorial/newt:latest
+	docker run fosrl/newt:latest
 
 local: 
 	 CGO_ENABLED=0 GOOS=linux go build -o newt
