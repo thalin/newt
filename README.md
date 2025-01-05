@@ -1,6 +1,6 @@
 # Newt
 
-Newt is a fully user space [WireGuard](https://www.wireguard.com/) tunnel client and TCP/UDP proxy, designed to securely expose private resources controlled by Pangolin. By using Newt, you don't need to manage complex WireGuard tunnels and NATing to expose your resources.
+Newt is a fully user space [WireGuard](https://www.wireguard.com/) tunnel client and TCP/UDP proxy, designed to securely expose private resources controlled by Pangolin. By using Newt, you don't need to manage complex WireGuard tunnels and NATing.
 
 ### Installation and Documentation
 
@@ -78,8 +78,8 @@ make local
 
 ## Licensing
 
-Newt is released under the ... license. For inquiries about commercial licensing, please contact us.
+Newt is dual licensed under the AGPLv3 and the Fossorial Commercial license. For inquiries about commercial licensing, please contact us.
 
 ## Contributions
 
-Please see [CONTRIBUTIONS](./CONTRIBUTIONS.md) in the repository for guidelines and best practices.
+Please see [CONTRIBUTIONS](./CONTRIBUTING.md) in the repository for guidelines and best practices.
