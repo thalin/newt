@@ -11,7 +11,7 @@ test:
 	docker run fosrl/newt:latest
 
 local: 
-	 CGO_ENABLED=0 GOOS=linux go build -o newt
+	 CGO_ENABLED=0 go build -o newt
 
 clean:
 	rm newt
