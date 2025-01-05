@@ -296,7 +296,7 @@ func main() {
 		logger.Info("Received registration message")
 
 		if connected {
-			logger.Info("Already connected! Put I will send a ping anyway...")
+			logger.Info("Already connected! But I will send a ping anyway...")
 			// ping(tnet, wgData.ServerIP)
 			err = pingWithRetry(tnet, wgData.ServerIP)
 			if err != nil {
