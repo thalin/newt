@@ -112,6 +112,26 @@ func ping(tnet *netstack.Net, dst string) error {
 	return nil
 }
 
+func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				err := ping(tnet, serverIP)
+				if err != nil {
+					logger.Warn("Periodic ping failed: %v", err)
+				}
+			case <-stopChan:
+				logger.Info("Stopping ping check")
+				return
+			}
+		}
+	}()
+}
+
 func pingWithRetry(tnet *netstack.Net, dst string) error {
 	const (
 		maxAttempts = 5
@@ -222,13 +242,6 @@ func resolveDomain(domain string) (string, error) {
 	return ipAddr, nil
 }
 
-func getEnvWithDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
 func main() {
 	var (
 		endpoint   string
@@ -240,12 +253,28 @@ func main() {
 		logLevel   string
 	)
 
-	// Define CLI flags with default values from environment variables
-	flag.StringVar(&endpoint, "endpoint", os.Getenv("PANGOLIN_ENDPOINT"), "Endpoint of your pangolin server")
-	flag.StringVar(&id, "id", os.Getenv("NEWT_ID"), "Newt ID")
-	flag.StringVar(&secret, "secret", os.Getenv("NEWT_SECRET"), "Newt secret")
-	flag.StringVar(&dns, "dns", getEnvWithDefault("DEFAULT_DNS", "8.8.8.8"), "DNS server to use")
-	flag.StringVar(&logLevel, "log-level", getEnvWithDefault("LOG_LEVEL", "INFO"), "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
+	// if PANGOLIN_ENDPOINT, NEWT_ID, and NEWT_SECRET are set as environment variables, they will be used as default values
+	endpoint = os.Getenv("PANGOLIN_ENDPOINT")
+	id = os.Getenv("NEWT_ID")
+	secret = os.Getenv("NEWT_SECRET")
+	dns = os.Getenv("DNS")
+	logLevel = os.Getenv("LOG_LEVEL")
+
+	if endpoint == "" {
+		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
+	}
+	if id == "" {
+		flag.StringVar(&id, "id", "", "Newt ID")
+	}
+	if secret == "" {
+		flag.StringVar(&secret, "secret", "", "Newt secret")
+	}
+	if dns == "" {
+		flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
+	}
+	if logLevel == "" {
+		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
+	}
 	flag.Parse()
 
 	logger.Init()
@@ -290,6 +319,9 @@ func main() {
 		}
 		client.Close()
 	})
+
+	pingStopChan := make(chan struct{})
+	defer close(pingStopChan)
 
 	// Register handlers for different message types
 	client.RegisterHandler("newt/wg/connect", func(msg websocket.WSMessage) {
@@ -363,6 +395,11 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if err != nil {
 			// Handle complete failure after all retries
 			logger.Error("Failed to ping %s: %v", wgData.ServerIP, err)
+		}
+
+		if !connected {
+			logger.Info("Starting ping check")
+			startPingCheck(tnet, wgData.ServerIP, pingStopChan)
 		}
 
 		// Create proxy manager
