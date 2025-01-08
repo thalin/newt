@@ -112,6 +112,26 @@ func ping(tnet *netstack.Net, dst string) error {
 	return nil
 }
 
+func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				err := ping(tnet, serverIP)
+				if err != nil {
+					logger.Warn("Periodic ping failed: %v", err)
+				}
+			case <-stopChan:
+				logger.Info("Stopping ping check")
+				return
+			}
+		}
+	}()
+}
+
 func pingWithRetry(tnet *netstack.Net, dst string) error {
 	const (
 		maxAttempts = 5
@@ -300,6 +320,9 @@ func main() {
 		client.Close()
 	})
 
+	pingStopChan := make(chan struct{})
+	defer close(pingStopChan)
+
 	// Register handlers for different message types
 	client.RegisterHandler("newt/wg/connect", func(msg websocket.WSMessage) {
 		logger.Info("Received registration message")
@@ -372,6 +395,11 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if err != nil {
 			// Handle complete failure after all retries
 			logger.Error("Failed to ping %s: %v", wgData.ServerIP, err)
+		}
+
+		if !connected {
+			logger.Info("Starting ping check")
+			startPingCheck(tnet, wgData.ServerIP, pingStopChan)
 		}
 
 		// Create proxy manager
