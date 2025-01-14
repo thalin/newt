@@ -7,3 +7,4 @@ services:
       - PANGOLIN_ENDPOINT=https://example.com
       - NEWT_ID=2ix2t8xk22ubpfy 
       - NEWT_SECRET=nnisrfsdfc7prqsp9ewo1dvtvci50j5uiqotez00dgap0ii2 
+      - LOG_LEVEL=DEBUG
