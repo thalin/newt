@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -247,6 +248,8 @@ func main() {
 		endpoint   string
 		id         string
 		secret     string
+		mtu        string
+		mtuInt     int
 		dns        string
 		privateKey wgtypes.Key
 		err        error
@@ -257,6 +260,7 @@ func main() {
 	endpoint = os.Getenv("PANGOLIN_ENDPOINT")
 	id = os.Getenv("NEWT_ID")
 	secret = os.Getenv("NEWT_SECRET")
+	mtu = os.Getenv("MTU")
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
 
@@ -268,6 +272,9 @@ func main() {
 	}
 	if secret == "" {
 		flag.StringVar(&secret, "secret", "", "Newt secret")
+	}
+	if mtu == "" {
+		flag.StringVar(&mtu, "mtu", "1280", "MTU to use")
 	}
 	if dns == "" {
 		flag.StringVar(&dns, "dns", "8.8.8.8", "DNS server to use")
@@ -284,6 +291,12 @@ func main() {
 	// Validate required fields
 	if endpoint == "" || id == "" || secret == "" {
 		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
+	}
+
+	// parse the mtu string into an int
+	mtuInt, err = strconv.Atoi(mtu)
+	if err != nil {
+		logger.Fatal("Failed to parse MTU: %v", err)
 	}
 
 	privateKey, err = wgtypes.GeneratePrivateKey()
@@ -353,7 +366,7 @@ func main() {
 		tun, tnet, err = netstack.CreateNetTUN(
 			[]netip.Addr{netip.MustParseAddr(wgData.TunnelIP)},
 			[]netip.Addr{netip.MustParseAddr(dns)},
-			1420)
+			mtuInt)
 		if err != nil {
 			logger.Error("Failed to create TUN device: %v", err)
 		}
