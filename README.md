@@ -19,7 +19,7 @@ _Sample output of a Newt container connected to Pangolin and hosting various res
 
 ### Registers with Pangolin
 
-Using the Newt ID and a secret the client will make HTTP requests to Pangolin to receive a session token. Using that token it will connect to a websocket and maintain that connection. Control messages will be sent over the websocket.
+Using the Newt ID and a secret, the client will make HTTP requests to Pangolin to receive a session token. Using that token, it will connect to a websocket and maintain that connection. Control messages will be sent over the websocket.
 
 ### Receives WireGuard Control Messages
 
@@ -27,7 +27,7 @@ When Newt receives WireGuard control messages, it will use the information encod
 
 ### Receives Proxy Control Messages
 
-When Newt receives WireGuard control messages, it will use the information encoded to crate local low level TCP and UDP proxies attached to the virtual tunnel in order to relay traffic to programmed targets.
+When Newt receives WireGuard control messages, it will use the information encoded to create a local low level TCP and UDP proxies attached to the virtual tunnel in order to relay traffic to programmed targets.
 
 ## CLI Args
 
