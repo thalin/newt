@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fosrl/newt/logger"
+	"gvisor.dev/gvisor/pkg/tcpip/adapters/gonet"
 
 	"golang.zx2c4.com/wireguard/tun/netstack"
 )
@@ -19,13 +20,12 @@ func NewProxyManager(tnet *netstack.Net) *ProxyManager {
 	}
 }
 
-func (pm *ProxyManager) AddTarget(protocol, listen string, port int, target string) {
+func (pm *ProxyManager) AddTarget(protocol, listen string, port int, target string) error {
 	pm.Lock()
 	defer pm.Unlock()
 
 	logger.Info("Adding target: %s://%s:%d -> %s", protocol, listen, port, target)
-
-	newTarget := ProxyTarget{
+	newTarget := &ProxyTarget{
 		Protocol: protocol,
 		Listen:   listen,
 		Port:     port,
@@ -35,6 +35,7 @@ func (pm *ProxyManager) AddTarget(protocol, listen string, port int, target stri
 	}
 
 	pm.targets = append(pm.targets, newTarget)
+	return nil
 }
 
 func (pm *ProxyManager) RemoveTarget(protocol, listen string, port int) error {
@@ -54,31 +55,21 @@ func (pm *ProxyManager) RemoveTarget(protocol, listen string, port int) error {
 			// Signal the serving goroutine to stop
 			select {
 			case <-target.cancel:
-				// Channel is already closed, no need to close it again
+				// Channel is already closed
 			default:
 				close(target.cancel)
 			}
 
-			// Close the appropriate listener/connection based on protocol
+			// Close the listener/connection
 			target.Lock()
 			switch protocol {
 			case "tcp":
 				if target.listener != nil {
-					select {
-					case <-target.cancel:
-						// Listener was already closed by Stop()
-					default:
-						target.listener.Close()
-					}
+					target.listener.Close()
 				}
 			case "udp":
 				if target.udpConn != nil {
-					select {
-					case <-target.cancel:
-						// Connection was already closed by Stop()
-					default:
-						target.udpConn.Close()
-					}
+					target.udpConn.Close()
 				}
 			}
 			target.Unlock()
@@ -86,7 +77,6 @@ func (pm *ProxyManager) RemoveTarget(protocol, listen string, port int) error {
 			// Wait for the target to fully stop
 			<-target.done
 
-			// Remove the target from the slice
 			pm.targets = append(pm.targets[:i], pm.targets[i+1:]...)
 			return nil
 		}
@@ -99,9 +89,7 @@ func (pm *ProxyManager) Start() error {
 	pm.RLock()
 	defer pm.RUnlock()
 
-	for i := range pm.targets {
-		target := &pm.targets[i]
-
+	for _, target := range pm.targets {
 		target.Lock()
 		// If target is already running, skip it
 		if target.listener != nil || target.udpConn != nil {
@@ -110,7 +98,6 @@ func (pm *ProxyManager) Start() error {
 		}
 
 		// Mark the target as starting by creating a nil listener/connection
-		// This prevents other goroutines from trying to start it
 		if strings.ToLower(target.Protocol) == "tcp" {
 			target.listener = nil
 		} else {
@@ -135,10 +122,11 @@ func (pm *ProxyManager) Stop() error {
 	defer pm.Unlock()
 
 	var wg sync.WaitGroup
-	for i := range pm.targets {
-		target := &pm.targets[i]
+	for _, target := range pm.targets {
 		wg.Add(1)
-		go func(t *ProxyTarget) {
+		// Create a new variable in the loop to avoid closure issues
+		t := target // Take a local copy
+		go func() {
 			defer wg.Done()
 			close(t.cancel)
 			t.Lock()
@@ -151,7 +139,7 @@ func (pm *ProxyManager) Stop() error {
 			t.Unlock()
 			// Wait for the target to fully stop
 			<-t.done
-		}(target)
+		}()
 	}
 	wg.Wait()
 	return nil
@@ -220,32 +208,41 @@ func (pm *ProxyManager) handleTCPConnection(clientConn net.Conn, target string, 
 	}
 	defer serverConn.Close()
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	// Create error channels for both copy operations
+	errc1 := make(chan error, 1)
+	errc2 := make(chan error, 1)
 
-	// Client -> Server
+	// Copy from client to server
 	go func() {
-		defer wg.Done()
-		select {
-		case <-done:
-			return
-		default:
-			io.Copy(serverConn, clientConn)
-		}
+		_, err := io.Copy(serverConn, clientConn)
+		errc1 <- err
 	}()
 
-	// Server -> Client
+	// Copy from server to client
 	go func() {
-		defer wg.Done()
-		select {
-		case <-done:
-			return
-		default:
-			io.Copy(clientConn, serverConn)
-		}
+		_, err := io.Copy(clientConn, serverConn)
+		errc2 <- err
 	}()
 
-	wg.Wait()
+	// Wait for either copy to finish or done signal
+	select {
+	case <-done:
+		// Gracefully close connections without type assertions
+		if closer, ok := clientConn.(interface{ CloseRead() error }); ok {
+			closer.CloseRead()
+		}
+		if closer, ok := serverConn.(*gonet.TCPConn); ok {
+			closer.CloseRead()
+		}
+	case err := <-errc1:
+		if err != nil {
+			logger.Info("Error copying client->server: %v", err)
+		}
+	case err := <-errc2:
+		if err != nil {
+			logger.Info("Error copying server->client: %v", err)
+		}
+	}
 }
 
 func (pm *ProxyManager) serveUDP(target *ProxyTarget) {
