@@ -455,11 +455,6 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "tcp", targetData)
 		}
-
-		err = pm.Start()
-		if err != nil {
-			logger.Error("Failed to start proxy manager: %v", err)
-		}
 	})
 
 	client.RegisterHandler("newt/udp/add", func(msg websocket.WSMessage) {
@@ -479,11 +474,6 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", targetData)
-		}
-
-		err = pm.Start()
-		if err != nil {
-			logger.Error("Failed to start proxy manager: %v", err)
 		}
 	})
 
