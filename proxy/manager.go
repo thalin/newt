@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -279,6 +280,22 @@ func (pm *ProxyManager) handleUDPProxy(conn *gonet.UDPConn, targetAddr string) {
 			if !pm.running {
 				return
 			}
+
+			// Check for connection closed conditions
+			if err == io.EOF || strings.Contains(err.Error(), "use of closed network connection") {
+				logger.Info("UDP connection closed, stopping proxy handler")
+
+				// Clean up existing client connections
+				clientsMutex.Lock()
+				for _, targetConn := range clientConns {
+					targetConn.Close()
+				}
+				clientConns = nil
+				clientsMutex.Unlock()
+
+				return
+			}
+
 			logger.Error("Error reading UDP packet: %v", err)
 			continue
 		}
