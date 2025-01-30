@@ -289,11 +289,6 @@ func main() {
 	loggerLevel := parseLogLevel(logLevel)
 	logger.GetLogger().SetLevel(parseLogLevel(logLevel))
 
-	// Validate required fields
-	if endpoint == "" || id == "" || secret == "" {
-		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
-	}
-
 	// parse the mtu string into an int
 	mtuInt, err = strconv.Atoi(mtu)
 	if err != nil {
