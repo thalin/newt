@@ -283,16 +283,20 @@ func main() {
 	if logLevel == "" {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	}
+
+	// do a --version check
+	version := flag.Bool("version", false, "Print the version")
+
 	flag.Parse()
+
+	if *version {
+		fmt.Println("Newt version replaceme")
+		os.Exit(0)
+	}
 
 	logger.Init()
 	loggerLevel := parseLogLevel(logLevel)
 	logger.GetLogger().SetLevel(parseLogLevel(logLevel))
-
-	// Validate required fields
-	if endpoint == "" || id == "" || secret == "" {
-		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
-	}
 
 	// parse the mtu string into an int
 	mtuInt, err = strconv.Atoi(mtu)
