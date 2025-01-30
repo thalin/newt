@@ -305,6 +305,10 @@ func (c *Client) establishConnection() error {
 	go c.readPump()
 
 	if c.onConnect != nil {
+		err := c.saveConfig()
+		if err != nil {
+			logger.Error("Failed to save config: %v", err)
+		}
 		if err := c.onConnect(); err != nil {
 			logger.Error("OnConnect callback failed: %v", err)
 		}

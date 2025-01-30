@@ -283,16 +283,20 @@ func main() {
 	if logLevel == "" {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
 	}
+
+	// do a --version check
+	version := flag.Bool("version", false, "Print the version")
+
 	flag.Parse()
+
+	if *version {
+		fmt.Println("Newt version replaceme")
+		os.Exit(0)
+	}
 
 	logger.Init()
 	loggerLevel := parseLogLevel(logLevel)
 	logger.GetLogger().SetLevel(parseLogLevel(logLevel))
-
-	// Validate required fields
-	if endpoint == "" || id == "" || secret == "" {
-		logger.Fatal("endpoint, id, and secret are required either via CLI flags or environment variables")
-	}
 
 	// parse the mtu string into an int
 	mtuInt, err = strconv.Atoi(mtu)
@@ -455,11 +459,6 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "tcp", targetData)
 		}
-
-		err = pm.Start()
-		if err != nil {
-			logger.Error("Failed to start proxy manager: %v", err)
-		}
 	})
 
 	client.RegisterHandler("newt/udp/add", func(msg websocket.WSMessage) {
@@ -479,11 +478,6 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 
 		if len(targetData.Targets) > 0 {
 			updateTargets(pm, "add", wgData.TunnelIP, "udp", targetData)
-		}
-
-		err = pm.Start()
-		if err != nil {
-			logger.Error("Failed to start proxy manager: %v", err)
 		}
 	})
 
