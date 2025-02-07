@@ -64,7 +64,7 @@ func (pm *ProxyManager) AddTarget(proto, listenIP string, port int, targetAddr s
 	if pm.running {
 		return pm.startTarget(proto, listenIP, port, targetAddr)
 	} else {
-		logger.Info("Not adding target because not running")
+		logger.Debug("Not adding target because not running")
 	}
 	return nil
 }
