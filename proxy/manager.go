@@ -41,7 +41,7 @@ func NewProxyManager(tnet *netstack.Net) *ProxyManager {
 	}
 }
 
-// AddTarget adds a new target for proxying
+// AddTarget adds as new target for proxying
 func (pm *ProxyManager) AddTarget(proto, listenIP string, port int, targetAddr string) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
