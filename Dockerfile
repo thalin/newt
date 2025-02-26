@@ -15,19 +15,13 @@ COPY . .
 # Build the application
 RUN CGO_ENABLED=0 GOOS=linux go build -o /newt
 
-# Start a new stage from scratch
-FROM ubuntu:22.04 AS runner
+FROM alpine:3.19 AS runner
 
-RUN apt-get update && apt-get install ca-certificates -y  && rm -rf /var/lib/apt/lists/*
+RUN apk --no-cache add ca-certificates
 
-# Copy the pre-built binary file from the previous stage and the entrypoint script
 COPY --from=builder /newt /usr/local/bin/
 COPY entrypoint.sh /
 
 RUN chmod +x /entrypoint.sh
-
-# Copy the entrypoint script
 ENTRYPOINT ["/entrypoint.sh"]
-
-# Command to run the executable
 CMD ["newt"]
