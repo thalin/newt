@@ -228,6 +228,10 @@ func (c *Client) getToken() (string, error) {
 
 	var tokenResp TokenResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		// print out the token response for debugging
+		buf := new(bytes.Buffer)
+		buf.ReadFrom(resp.Body)
+		logger.Info("Token response: %s", buf.String())
 		return "", fmt.Errorf("failed to decode token response: %w", err)
 	}
 

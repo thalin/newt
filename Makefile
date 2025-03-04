@@ -6,8 +6,8 @@ docker-build-release:
 		echo "Error: tag is required. Usage: make build-all tag=<tag>"; \
 		exit 1; \
 	fi
-	docker buildx build --platform linux/arm64,linux/amd64 -t fosrl/newt:latest -f Dockerfile --push .
-	docker buildx build --platform linux/arm64,linux/amd64 -t fosrl/newt:$(tag) -f Dockerfile --push .
+	docker buildx build --platform linux/arm64,linux/amd64,linux/arm/v7 -t fosrl/newt:latest -f Dockerfile --push .
+	docker buildx build --platform linux/arm64,linux/amd64,linux/arm/v7 -t fosrl/newt:$(tag) -f Dockerfile --push .
 
 build:
 	docker build -t fosrl/newt:latest .
@@ -23,7 +23,10 @@ local:
 
 go-build-release:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o bin/newt_linux_arm64
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -o bin/newt_linux_arm32
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build -o bin/newt_linux_arm32v6
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/newt_linux_amd64
+	CGO_ENABLED=0 GOOS=linux GOARCH=riscv64 go build -o bin/newt_linux_riscv64
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o bin/newt_darwin_arm64
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o bin/newt_darwin_amd64
 	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -o bin/newt_windows_amd64.exe

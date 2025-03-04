@@ -124,7 +124,7 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 				err := ping(tnet, serverIP)
 				if err != nil {
 					logger.Warn("Periodic ping failed: %v", err)
-					logger.Warn("HINT: Do you have UDP port 51280 (or the port in config.yml) open on your Pangolin server?")
+					logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
 				}
 			case <-stopChan:
 				logger.Info("Stopping ping check")
