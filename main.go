@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -244,19 +245,20 @@ func resolveDomain(domain string) (string, error) {
 	return ipAddr, nil
 }
 
-func main() {
-	var (
-		endpoint   string
-		id         string
-		secret     string
-		mtu        string
-		mtuInt     int
-		dns        string
-		privateKey wgtypes.Key
-		err        error
-		logLevel   string
-	)
+var (
+	endpoint     string
+	id           string
+	secret       string
+	mtu          string
+	mtuInt       int
+	dns          string
+	privateKey   wgtypes.Key
+	err          error
+	logLevel     string
+	updownScript string
+)
 
+func main() {
 	// if PANGOLIN_ENDPOINT, NEWT_ID, and NEWT_SECRET are set as environment variables, they will be used as default values
 	endpoint = os.Getenv("PANGOLIN_ENDPOINT")
 	id = os.Getenv("NEWT_ID")
@@ -264,6 +266,7 @@ func main() {
 	mtu = os.Getenv("MTU")
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
+	updownScript = os.Getenv("UPDOWN_SCRIPT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -282,6 +285,9 @@ func main() {
 	}
 	if logLevel == "" {
 		flag.StringVar(&logLevel, "log-level", "INFO", "Log level (DEBUG, INFO, WARN, ERROR, FATAL)")
+	}
+	if updownScript == "" {
+		flag.StringVar(&updownScript, "updown", "", "Path to updown script to be called when targets are added or removed")
 	}
 
 	// do a --version check
@@ -586,6 +592,18 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 
 		if action == "add" {
 			target := parts[1] + ":" + parts[2]
+
+			// Call updown script if provided
+			processedTarget := target
+			if updownScript != "" {
+				newTarget, err := executeUpdownScript(action, proto, target)
+				if err != nil {
+					logger.Warn("Updown script error: %v", err)
+				} else if newTarget != "" {
+					processedTarget = newTarget
+				}
+			}
+
 			// Only remove the specific target if it exists
 			err := pm.RemoveTarget(proto, tunnelIP, port)
 			if err != nil {
@@ -596,10 +614,21 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 			}
 
 			// Add the new target
-			pm.AddTarget(proto, tunnelIP, port, target)
+			pm.AddTarget(proto, tunnelIP, port, processedTarget)
 
 		} else if action == "remove" {
 			logger.Info("Removing target with port %d", port)
+
+			target := parts[1] + ":" + parts[2]
+
+			// Call updown script if provided
+			if updownScript != "" {
+				_, err := executeUpdownScript(action, proto, target)
+				if err != nil {
+					logger.Warn("Updown script error: %v", err)
+				}
+			}
+
 			err := pm.RemoveTarget(proto, tunnelIP, port)
 			if err != nil {
 				logger.Error("Failed to remove target: %v", err)
@@ -609,4 +638,46 @@ func updateTargets(pm *proxy.ProxyManager, action string, tunnelIP string, proto
 	}
 
 	return nil
+}
+
+func executeUpdownScript(action, proto, target string) (string, error) {
+	if updownScript == "" {
+		return target, nil
+	}
+
+	// Split the updownScript in case it contains spaces (like "/usr/bin/python3 script.py")
+	parts := strings.Fields(updownScript)
+	if len(parts) == 0 {
+		return target, fmt.Errorf("invalid updown script command")
+	}
+
+	var cmd *exec.Cmd
+	if len(parts) == 1 {
+		// If it's a single executable
+		logger.Info("Executing updown script: %s %s %s %s", updownScript, action, proto, target)
+		cmd = exec.Command(parts[0], action, proto, target)
+	} else {
+		// If it includes interpreter and script
+		args := append(parts[1:], action, proto, target)
+		logger.Info("Executing updown script: %s %s %s %s %s", parts[0], strings.Join(parts[1:], " "), action, proto, target)
+		cmd = exec.Command(parts[0], args...)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return "", fmt.Errorf("updown script execution failed (exit code %d): %s",
+				exitErr.ExitCode(), string(exitErr.Stderr))
+		}
+		return "", fmt.Errorf("updown script execution failed: %v", err)
+	}
+
+	// If the script returns a new target, use it
+	newTarget := strings.TrimSpace(string(output))
+	if newTarget != "" {
+		logger.Info("Updown script returned new target: %s", newTarget)
+		return newTarget, nil
+	}
+
+	return target, nil
 }
