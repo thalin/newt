@@ -105,6 +105,8 @@ It will get called with args when a target is added:
 
 Returning a string from the script in the format of a target (`ip:dst` so `10.0.0.1:8080`) it will override the target and use this value instead to proxy.
 
+You can look at updown.py as a reference script to get started!
+
 ## Build
 
 ### Container 
