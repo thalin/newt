@@ -137,7 +137,7 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 
 func pingWithRetry(tnet *netstack.Net, dst string) error {
 	const (
-		maxAttempts = 5
+		maxAttempts = 15
 		retryDelay  = 2 * time.Second
 	)
 
