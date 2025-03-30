@@ -246,16 +246,17 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint     string
-	id           string
-	secret       string
-	mtu          string
-	mtuInt       int
-	dns          string
-	privateKey   wgtypes.Key
-	err          error
-	logLevel     string
-	updownScript string
+	endpoint      string
+	id            string
+	secret        string
+	mtu           string
+	mtuInt        int
+	dns           string
+	privateKey    wgtypes.Key
+	err           error
+	logLevel      string
+	updownScript  string
+	tlsPrivateKey string
 )
 
 func main() {
@@ -267,6 +268,7 @@ func main() {
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
+	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -288,6 +290,9 @@ func main() {
 	}
 	if updownScript == "" {
 		flag.StringVar(&updownScript, "updown", "", "Path to updown script to be called when targets are added or removed")
+	}
+	if tlsPrivateKey == "" {
+		flag.StringVar(&tlsPrivateKey, "tls-client-cert", "", "Path to client certificate used for mTLS")
 	}
 
 	// do a --version check
@@ -314,12 +319,21 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to generate private key: %v", err)
 	}
+	var opt websocket.ClientOption
+	if tlsPrivateKey != "" {
+		tlsConfig, err := websocket.LoadClientCertificate(tlsPrivateKey)
+		if err != nil {
+			logger.Fatal("Failed to load client certificate: %v", err)
+		}
+		opt = websocket.WithTLSConfig(tlsConfig)
+	}
 
 	// Create a new client
 	client, err := websocket.NewClient(
 		id,     // CLI arg takes precedence
 		secret, // CLI arg takes precedence
 		endpoint,
+		opt,
 	)
 	if err != nil {
 		logger.Fatal("Failed to create client: %v", err)
