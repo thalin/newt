@@ -19,14 +19,12 @@ import (
 )
 
 type Client struct {
-	conn        *websocket.Conn
-	config      *Config
-	baseURL     string
-	handlers    map[string]MessageHandler
-	done        chan struct{}
-	handlersMux sync.RWMutex
-	tlsConfig   *tls.Config
-
+	conn              *websocket.Conn
+	config            *Config
+	baseURL           string
+	handlers          map[string]MessageHandler
+	done              chan struct{}
+	handlersMux       sync.RWMutex
 	reconnectInterval time.Duration
 	isConnected       bool
 	reconnectMux      sync.RWMutex
@@ -45,9 +43,9 @@ func WithBaseURL(url string) ClientOption {
 	}
 }
 
-func WithTLSConfig(tlsConfig *tls.Config) ClientOption {
+func WithTLSConfig(tlsClientCertPath string) ClientOption {
 	return func(c *Client) {
-		c.tlsConfig = tlsConfig
+		c.config.TlsClientCert = tlsClientCertPath
 	}
 }
 
@@ -73,8 +71,13 @@ func NewClient(newtID, secret string, endpoint string, opts ...ClientOption) (*C
 	}
 
 	// Apply options before loading config
-	for _, opt := range opts {
-		opt(client)
+	if opts != nil {
+		for _, opt := range opts {
+			if opt == nil {
+				continue
+			}
+			opt(client)
+		}
 	}
 
 	// Load existing config if available
@@ -187,10 +190,13 @@ func (c *Client) getToken() (string, error) {
 
 		// Make the request
 		client := &http.Client{}
-		if c.tlsConfig != nil {
-			logger.Info("Adding tls to req")
+		if c.config.TlsClientCert != "" {
+			tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
+			if err != nil {
+				return "", fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
+			}
 			client.Transport = &http.Transport{
-				TLSClientConfig: c.tlsConfig,
+				TLSClientConfig: tlsConfig,
 			}
 		}
 		resp, err := client.Do(req)
@@ -236,9 +242,13 @@ func (c *Client) getToken() (string, error) {
 
 	// Make the request
 	client := &http.Client{}
-	if c.tlsConfig != nil {
+	if c.config.TlsClientCert != "" {
+		tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
+		if err != nil {
+			return "", fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
+		}
 		client.Transport = &http.Transport{
-			TLSClientConfig: c.tlsConfig,
+			TLSClientConfig: tlsConfig,
 		}
 	}
 	resp, err := client.Do(req)
@@ -317,8 +327,13 @@ func (c *Client) establishConnection() error {
 
 	// Connect to WebSocket
 	dialer := websocket.DefaultDialer
-	if c.tlsConfig != nil {
-		dialer.TLSClientConfig = c.tlsConfig
+	if c.config.TlsClientCert != "" {
+		logger.Info("Adding tls to req")
+		tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
+		if err != nil {
+			return fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
+		}
+		dialer.TLSClientConfig = tlsConfig
 	}
 	conn, _, err := dialer.Dial(u.String(), nil)
 	if err != nil {
@@ -381,6 +396,7 @@ func (c *Client) setConnected(status bool) {
 
 // LoadClientCertificate Helper method to load client certificates
 func LoadClientCertificate(p12Path string) (*tls.Config, error) {
+	logger.Info("Loading tls-client-cert %s", p12Path)
 	// Read the PKCS12 file
 	p12Data, err := os.ReadFile(p12Path)
 	if err != nil {
@@ -392,7 +408,7 @@ func LoadClientCertificate(p12Path string) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode PKCS12: %w", err)
 	}
-
+	
 	// Create certificate
 	cert := tls.Certificate{
 		Certificate: [][]byte{certificate.Raw},

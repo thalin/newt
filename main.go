@@ -321,13 +321,8 @@ func main() {
 	}
 	var opt websocket.ClientOption
 	if tlsPrivateKey != "" {
-		tlsConfig, err := websocket.LoadClientCertificate(tlsPrivateKey)
-		if err != nil {
-			logger.Fatal("Failed to load client certificate: %v", err)
-		}
-		opt = websocket.WithTLSConfig(tlsConfig)
+		opt = websocket.WithTLSConfig(tlsPrivateKey)
 	}
-
 	// Create a new client
 	client, err := websocket.NewClient(
 		id,     // CLI arg takes precedence
