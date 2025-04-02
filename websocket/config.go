@@ -61,10 +61,6 @@ func (c *Client) loadConfig() error {
 		c.config.Endpoint = config.Endpoint
 		c.baseURL = config.Endpoint
 	}
-	if c.config.Endpoint == "" {
-		c.config.Endpoint = config.Endpoint
-		c.baseURL = config.Endpoint
-	}
 
 	return nil
 }

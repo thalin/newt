@@ -162,6 +162,14 @@ func (c *Client) getToken() (string, error) {
 	// Ensure we have the base URL without trailing slashes
 	baseEndpoint := strings.TrimRight(baseURL.String(), "/")
 
+	var tlsConfig *tls.Config = nil
+	if c.config.TlsClientCert != "" {
+		tlsConfig, err = loadClientCertificate(c.config.TlsClientCert)
+		if err != nil {
+			return "", fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
+		}
+	}
+
 	// If we already have a token, try to use it
 	if c.config.Token != "" {
 		tokenCheckData := map[string]interface{}{
@@ -190,11 +198,7 @@ func (c *Client) getToken() (string, error) {
 
 		// Make the request
 		client := &http.Client{}
-		if c.config.TlsClientCert != "" {
-			tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
-			if err != nil {
-				return "", fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
-			}
+		if tlsConfig != nil {
 			client.Transport = &http.Transport{
 				TLSClientConfig: tlsConfig,
 			}
@@ -242,11 +246,7 @@ func (c *Client) getToken() (string, error) {
 
 	// Make the request
 	client := &http.Client{}
-	if c.config.TlsClientCert != "" {
-		tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
-		if err != nil {
-			return "", fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
-		}
+	if tlsConfig != nil {
 		client.Transport = &http.Transport{
 			TLSClientConfig: tlsConfig,
 		}
@@ -329,7 +329,7 @@ func (c *Client) establishConnection() error {
 	dialer := websocket.DefaultDialer
 	if c.config.TlsClientCert != "" {
 		logger.Info("Adding tls to req")
-		tlsConfig, err := LoadClientCertificate(c.config.TlsClientCert)
+		tlsConfig, err := loadClientCertificate(c.config.TlsClientCert)
 		if err != nil {
 			return fmt.Errorf("failed to load certificate %s: %w", c.config.TlsClientCert, err)
 		}
@@ -395,7 +395,7 @@ func (c *Client) setConnected(status bool) {
 }
 
 // LoadClientCertificate Helper method to load client certificates
-func LoadClientCertificate(p12Path string) (*tls.Config, error) {
+func loadClientCertificate(p12Path string) (*tls.Config, error) {
 	logger.Info("Loading tls-client-cert %s", p12Path)
 	// Read the PKCS12 file
 	p12Data, err := os.ReadFile(p12Path)
@@ -408,7 +408,7 @@ func LoadClientCertificate(p12Path string) (*tls.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode PKCS12: %w", err)
 	}
-	
+
 	// Create certificate
 	cert := tls.Certificate{
 		Certificate: [][]byte{certificate.Raw},

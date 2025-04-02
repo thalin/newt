@@ -124,7 +124,7 @@ Examples:
 --id 31frd0uzbjvp721 \
 --secret h51mmlknrvrwv8s4r1i210azhumt6isgbpyavxodibx1k2d6 \
 --endpoint https://example.com \
---tls-client-cert /client.p12
+--tls-client-cert ./client.p12
 ```
 
 ```yaml
@@ -137,7 +137,7 @@ services:
       - PANGOLIN_ENDPOINT=https://example.com
       - NEWT_ID=2ix2t8xk22ubpfy 
       - NEWT_SECRET=nnisrfsdfc7prqsp9ewo1dvtvci50j5uiqotez00dgap0ii2 
-      - TLS_CLIENT_CERT=/client.p12 
+      - TLS_CLIENT_CERT=./client.p12 
 ```
 
 ## Build

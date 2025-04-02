@@ -561,10 +561,13 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	sigReceived := <-sigCh
 
 	// Cleanup
-	dev.Close()
+	logger.Info("Received %s signal, stopping", sigReceived.String())
+	if dev != nil {
+		dev.Close()
+	}
 }
 
 func parseTargetData(data interface{}) (TargetData, error) {
