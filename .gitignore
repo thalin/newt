@@ -1,3 +1,6 @@
 newt
 .DS_Store
 bin/
+.idea
+*.iml
+certs/

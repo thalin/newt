@@ -340,16 +340,17 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint     string
-	id           string
-	secret       string
-	mtu          string
-	mtuInt       int
-	dns          string
-	privateKey   wgtypes.Key
-	err          error
-	logLevel     string
-	updownScript string
+	endpoint      string
+	id            string
+	secret        string
+	mtu           string
+	mtuInt        int
+	dns           string
+	privateKey    wgtypes.Key
+	err           error
+	logLevel      string
+	updownScript  string
+	tlsPrivateKey string
 )
 
 func main() {
@@ -361,6 +362,7 @@ func main() {
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
+	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -382,6 +384,9 @@ func main() {
 	}
 	if updownScript == "" {
 		flag.StringVar(&updownScript, "updown", "", "Path to updown script to be called when targets are added or removed")
+	}
+	if tlsPrivateKey == "" {
+		flag.StringVar(&tlsPrivateKey, "tls-client-cert", "", "Path to client certificate used for mTLS")
 	}
 
 	// do a --version check
@@ -408,12 +413,16 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to generate private key: %v", err)
 	}
-
+	var opt websocket.ClientOption
+	if tlsPrivateKey != "" {
+		opt = websocket.WithTLSConfig(tlsPrivateKey)
+	}
 	// Create a new client
 	client, err := websocket.NewClient(
 		id,     // CLI arg takes precedence
 		secret, // CLI arg takes precedence
 		endpoint,
+		opt,
 	)
 	if err != nil {
 		logger.Fatal("Failed to create client: %v", err)
@@ -642,10 +651,13 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	sigReceived := <-sigCh
 
 	// Cleanup
-	dev.Close()
+	logger.Info("Received %s signal, stopping", sigReceived.String())
+	if dev != nil {
+		dev.Close()
+	}
 }
 
 func parseTargetData(data interface{}) (TargetData, error) {
