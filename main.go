@@ -115,7 +115,12 @@ func ping(tnet *netstack.Net, dst string) error {
 }
 
 func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{}) {
-	ticker := time.NewTicker(10 * time.Second)
+	initialInterval := 10 * time.Second
+	maxInterval := 60 * time.Second
+	currentInterval := initialInterval
+	consecutiveFailures := 0
+
+	ticker := time.NewTicker(currentInterval)
 	defer ticker.Stop()
 
 	go func() {
@@ -124,8 +129,34 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 			case <-ticker.C:
 				err := ping(tnet, serverIP)
 				if err != nil {
-					logger.Warn("Periodic ping failed: %v", err)
+					consecutiveFailures++
+					logger.Warn("Periodic ping failed (%d consecutive failures): %v",
+						consecutiveFailures, err)
 					logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
+
+					// Increase interval if we have consistent failures, with a maximum cap
+					if consecutiveFailures >= 3 && currentInterval < maxInterval {
+						// Increase by 50% each time, up to the maximum
+						currentInterval = time.Duration(float64(currentInterval) * 1.5)
+						if currentInterval > maxInterval {
+							currentInterval = maxInterval
+						}
+						ticker.Reset(currentInterval)
+						logger.Info("Increased ping check interval to %v due to consecutive failures",
+							currentInterval)
+					}
+				} else {
+					// On success, if we've backed off, gradually return to normal interval
+					if currentInterval > initialInterval {
+						currentInterval = time.Duration(float64(currentInterval) * 0.8)
+						if currentInterval < initialInterval {
+							currentInterval = initialInterval
+						}
+						ticker.Reset(currentInterval)
+						logger.Info("Decreased ping check interval to %v after successful ping",
+							currentInterval)
+					}
+					consecutiveFailures = 0
 				}
 			case <-stopChan:
 				logger.Info("Stopping ping check")
@@ -135,34 +166,97 @@ func startPingCheck(tnet *netstack.Net, serverIP string, stopChan chan struct{})
 	}()
 }
 
+// Function to track connection status and trigger reconnection as needed
+func monitorConnectionStatus(tnet *netstack.Net, serverIP string, client *websocket.Client) {
+	const checkInterval = 30 * time.Second
+	connectionLost := false
+	ticker := time.NewTicker(checkInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Try a ping to see if connection is alive
+			err := ping(tnet, serverIP)
+
+			if err != nil && !connectionLost {
+				// We just lost connection
+				connectionLost = true
+				logger.Warn("Connection to server lost. Continuous reconnection attempts will be made.")
+
+				// Notify the user they might need to check their network
+				logger.Warn("Please check your internet connection and ensure the Pangolin server is online.")
+				logger.Warn("Newt will continue reconnection attempts automatically when connectivity is restored.")
+			} else if err == nil && connectionLost {
+				// Connection has been restored
+				connectionLost = false
+				logger.Info("Connection to server restored!")
+
+				// Tell the server we're back
+				err := client.SendMessage("newt/wg/register", map[string]interface{}{
+					"publicKey": fmt.Sprintf("%s", privateKey.PublicKey()),
+				})
+
+				if err != nil {
+					logger.Error("Failed to send registration message after reconnection: %v", err)
+				} else {
+					logger.Info("Successfully re-registered with server after reconnection")
+				}
+			}
+		}
+	}
+}
+
 func pingWithRetry(tnet *netstack.Net, dst string) error {
 	const (
-		maxAttempts = 15
-		retryDelay  = 2 * time.Second
+		initialMaxAttempts = 15
+		initialRetryDelay  = 2 * time.Second
+		maxRetryDelay      = 60 * time.Second // Cap the maximum delay
 	)
 
-	var lastErr error
-	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		logger.Info("Ping attempt %d of %d", attempt, maxAttempts)
+	attempt := 1
+	retryDelay := initialRetryDelay
 
-		if err := ping(tnet, dst); err != nil {
-			lastErr = err
-			logger.Warn("Ping attempt %d failed: %v", attempt, err)
-
-			if attempt < maxAttempts {
-				time.Sleep(retryDelay)
-				continue
-			}
-			return fmt.Errorf("all ping attempts failed after %d tries, last error: %w",
-				maxAttempts, lastErr)
-		}
-
+	// First try with the initial parameters
+	logger.Info("Ping attempt %d", attempt)
+	if err := ping(tnet, dst); err == nil {
 		// Successful ping
 		return nil
+	} else {
+		logger.Warn("Ping attempt %d failed: %v", attempt, err)
 	}
 
-	// This shouldn't be reached due to the return in the loop, but added for completeness
-	return fmt.Errorf("unexpected error: all ping attempts failed")
+	// Start a goroutine that will attempt pings indefinitely with increasing delays
+	go func() {
+		attempt = 2 // Continue from attempt 2
+
+		for {
+			logger.Info("Ping attempt %d", attempt)
+
+			if err := ping(tnet, dst); err != nil {
+				logger.Warn("Ping attempt %d failed: %v", attempt, err)
+
+				// Increase delay after certain thresholds but cap it
+				if attempt%5 == 0 && retryDelay < maxRetryDelay {
+					retryDelay = time.Duration(float64(retryDelay) * 1.5)
+					if retryDelay > maxRetryDelay {
+						retryDelay = maxRetryDelay
+					}
+					logger.Info("Increasing ping retry delay to %v", retryDelay)
+				}
+
+				time.Sleep(retryDelay)
+				attempt++
+			} else {
+				// Successful ping
+				logger.Info("Ping succeeded after %d attempts", attempt)
+				return
+			}
+		}
+	}()
+
+	// Return an error for the first batch of attempts (to maintain compatibility with existing code)
+	return fmt.Errorf("initial ping attempts failed, continuing in background")
 }
 
 func parseLogLevel(level string) logger.LogLevel {
@@ -246,16 +340,17 @@ func resolveDomain(domain string) (string, error) {
 }
 
 var (
-	endpoint     string
-	id           string
-	secret       string
-	mtu          string
-	mtuInt       int
-	dns          string
-	privateKey   wgtypes.Key
-	err          error
-	logLevel     string
-	updownScript string
+	endpoint      string
+	id            string
+	secret        string
+	mtu           string
+	mtuInt        int
+	dns           string
+	privateKey    wgtypes.Key
+	err           error
+	logLevel      string
+	updownScript  string
+	tlsPrivateKey string
 )
 
 func main() {
@@ -267,6 +362,7 @@ func main() {
 	dns = os.Getenv("DNS")
 	logLevel = os.Getenv("LOG_LEVEL")
 	updownScript = os.Getenv("UPDOWN_SCRIPT")
+	tlsPrivateKey = os.Getenv("TLS_CLIENT_CERT")
 
 	if endpoint == "" {
 		flag.StringVar(&endpoint, "endpoint", "", "Endpoint of your pangolin server")
@@ -288,6 +384,9 @@ func main() {
 	}
 	if updownScript == "" {
 		flag.StringVar(&updownScript, "updown", "", "Path to updown script to be called when targets are added or removed")
+	}
+	if tlsPrivateKey == "" {
+		flag.StringVar(&tlsPrivateKey, "tls-client-cert", "", "Path to client certificate used for mTLS")
 	}
 
 	// do a --version check
@@ -314,12 +413,16 @@ func main() {
 	if err != nil {
 		logger.Fatal("Failed to generate private key: %v", err)
 	}
-
+	var opt websocket.ClientOption
+	if tlsPrivateKey != "" {
+		opt = websocket.WithTLSConfig(tlsPrivateKey)
+	}
 	// Create a new client
 	client, err := websocket.NewClient(
 		id,     // CLI arg takes precedence
 		secret, // CLI arg takes precedence
 		endpoint,
+		opt,
 	)
 	if err != nil {
 		logger.Fatal("Failed to create client: %v", err)
@@ -353,13 +456,8 @@ func main() {
 
 		if connected {
 			logger.Info("Already connected! But I will send a ping anyway...")
-			// ping(tnet, wgData.ServerIP)
-			err = pingWithRetry(tnet, wgData.ServerIP)
-			if err != nil {
-				// Handle complete failure after all retries
-				logger.Warn("Failed to ping %s: %v", wgData.ServerIP, err)
-				logger.Warn("HINT: Do you have UDP port 51820 (or the port in config.yml) open on your Pangolin server?")
-			}
+			// Even if pingWithRetry returns an error, it will continue trying in the background
+			_ = pingWithRetry(tnet, wgData.ServerIP) // Ignoring initial error as pings will continue
 			return
 		}
 
@@ -414,17 +512,18 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 		}
 
 		logger.Info("WireGuard device created. Lets ping the server now...")
-		// Ping to bring the tunnel up on the server side quickly
-		// ping(tnet, wgData.ServerIP)
-		err = pingWithRetry(tnet, wgData.ServerIP)
-		if err != nil {
-			// Handle complete failure after all retries
-			logger.Error("Failed to ping %s: %v", wgData.ServerIP, err)
-		}
 
+		// Even if pingWithRetry returns an error, it will continue trying in the background
+		_ = pingWithRetry(tnet, wgData.ServerIP)
+
+		// Always mark as connected and start the proxy manager regardless of initial ping result
+		// as the pings will continue in the background
 		if !connected {
 			logger.Info("Starting ping check")
 			startPingCheck(tnet, wgData.ServerIP, pingStopChan)
+
+			// Start connection monitoring in a separate goroutine
+			go monitorConnectionStatus(tnet, wgData.ServerIP, client)
 		}
 
 		// Create proxy manager
@@ -552,10 +651,13 @@ persistent_keepalive_interval=5`, fixKey(fmt.Sprintf("%s", privateKey)), fixKey(
 	// Wait for interrupt signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
+	sigReceived := <-sigCh
 
 	// Cleanup
-	dev.Close()
+	logger.Info("Received %s signal, stopping", sigReceived.String())
+	if dev != nil {
+		dev.Close()
+	}
 }
 
 func parseTargetData(data interface{}) (TargetData, error) {
